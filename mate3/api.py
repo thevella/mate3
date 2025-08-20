@@ -5,11 +5,11 @@ from typing import List
 from loguru import logger
 from pymodbus.constants import Defaults
 
-from mate3.devices import DeviceValues
-from mate3.modbus_client import CachingModbusClient, ModbusTcpClient, NonCachingModbusClient
-from mate3.read import AllModelReads, ModelRead
-from mate3.sunspec.fields import Field, Mode, Uint16Field, Uint32Field
-from mate3.sunspec.models import MODEL_DEVICE_IDS, SunSpecEndModel, SunSpecHeaderModel
+from .devices import DeviceValues
+from .modbus_client import CachingModbusClient, ModbusTcpClient, NonCachingModbusClient
+from .read import AllModelReads, ModelRead
+from .sunspec.fields import Field, Mode, Uint16Field, Uint32Field
+from .sunspec.models import MODEL_DEVICE_IDS, SunSpecEndModel, SunSpecHeaderModel
 
 
 @dataclass(frozen=False)
@@ -46,14 +46,19 @@ class Mate3Client:
         cache_path: str = None,
         cache_only: bool = False,
         cache_writeable: bool = False,
+        **kwargs
     ):
-        self.host: str = host
-        self.port: int = port
+        self._host: str = host
+        self._port: int = port
         self._cache_path: str = cache_path
         self._cache_only: bool = cache_only
         self._cache_writeable: bool = cache_writeable
-        self._client: ModbusTcpClient = None
+        self._client: CachingModbusClient | NonCachingModbusClient = None
         self._devices: DeviceValues = None
+        self._modbus_kwargs = kwargs
+
+    def is_connected(self):
+        return self._client.is_connected()
 
     def connect(self):
         """
@@ -61,14 +66,15 @@ class Mate3Client:
         """
         if self._cache_path is not None:
             self._client = CachingModbusClient(
-                host=self.host,
-                port=self.port,
+                host=self._host,
+                port=self._port,
                 cache_path=self._cache_path,
                 cache_only=self._cache_only,
                 writeable=self._cache_writeable,
+                **self._modbus_kwargs
             )
         else:
-            self._client = NonCachingModbusClient(self.host, self.port)
+            self._client = NonCachingModbusClient(self._host, self._port, **self._modbus_kwargs)
 
         # Now read everything. Why? Because most use of the API assumes fields have already been read (e.g. to get
         # the devices, or the addresses of fields, etc.)

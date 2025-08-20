@@ -4,8 +4,8 @@ from typing import Any, Iterable, Optional, Tuple
 
 from loguru import logger
 
-from mate3.sunspec.fields import Field, Mode
-from mate3.sunspec.model_base import Model
+from .sunspec.fields import Field, Mode
+from .sunspec.model_base import Model
 
 
 class FieldValue:
@@ -43,11 +43,13 @@ class FieldValue:
         ss = [f"FieldValue[{self.field.name}]"]
         ss.append(f"{self.field.mode}")
         ss.append("Implemented" if self._implemented else "Not implemented")
-        if self._scale_factor is not None:
+        if self._scale_factor is not None and self._scale_factor.field.mode in (Mode.R, Mode.RW):
             ss.append(f"Scale factor: {self._scale_factor.value}")
-            ss.append(f"Unscaled value: {self._raw_value}")
-        if self._implemented:
-            ss.append(f"Value: {self.value}")
+        if self.field.mode in (Mode.R, Mode.RW):
+            if self._scale_factor is not None:
+                ss.append(f"Unscaled value: {self._raw_value}")
+            if self._implemented:
+                ss.append(f"Value: {self.value}")
         ss.append(f"Read @ {self.last_read}")
         return " | ".join(ss)
 

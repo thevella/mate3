@@ -10,8 +10,8 @@ from typing import List, Tuple
 from loguru import logger
 from pymodbus.constants import Defaults
 
-from mate3.api import Mate3Client
-from mate3.sunspec.fields import Mode
+from .api import Mate3Client
+from .sunspec.fields import Mode
 
 
 def read(client, args):

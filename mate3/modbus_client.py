@@ -16,6 +16,9 @@ class NonCachingModbusClient(ModbusTcpClient):
         if isinstance(response, Exception):
             raise response
         return response.registers
+    
+    def is_connected(self):
+        return self.is_socket_open()
 
 
 class CachingModbusClient(NonCachingModbusClient):

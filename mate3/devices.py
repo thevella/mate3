@@ -3,11 +3,11 @@ from typing import Dict, Iterable, Optional
 
 from loguru import logger
 
-from mate3.field_values import FieldValue, ModelValues
-from mate3.read import AllModelReads
-from mate3.sunspec.fields import IntegerField
-from mate3.sunspec.model_base import Model
-from mate3.sunspec.models import (
+from .field_values import FieldValue, ModelValues
+from .read import AllModelReads
+from .sunspec.fields import IntegerField
+from .sunspec.model_base import Model
+from .sunspec.models import (
     ChargeControllerConfigurationModel,
     ChargeControllerModel,
     FLEXnetDCConfigurationModel,
@@ -20,7 +20,7 @@ from mate3.sunspec.models import (
     SinglePhaseRadianInverterRealTimeModel,
     SplitPhaseRadianInverterRealTimeModel,
 )
-from mate3.sunspec.values import (
+from .sunspec.values import (
     ChargeControllerConfigurationValues,
     ChargeControllerValues,
     FLEXnetDCConfigurationValues,

@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass
 
-from mate3.field_values import FieldValue, ModelValues
-from mate3.sunspec import models
+from ..field_values import FieldValue, ModelValues
+from . import models
 
 
 @dataclass

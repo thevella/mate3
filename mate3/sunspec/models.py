@@ -2,7 +2,7 @@
 
 
 from enum import Enum, IntFlag, unique
-from mate3.sunspec.fields import (
+from .fields import (
     Mode,
     StringField,
     Int16Field,
@@ -15,7 +15,7 @@ from mate3.sunspec.fields import (
     DescribedIntFlag,
     AddressField
 )
-from mate3.sunspec.model_base import Model
+from .model_base import Model
 
 
 @unique

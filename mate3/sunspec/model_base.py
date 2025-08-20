@@ -1,6 +1,6 @@
 from typing import Iterable, Optional
 
-from mate3.sunspec.fields import Mode
+from .fields import Mode
 
 
 class Model:
