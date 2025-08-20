@@ -288,7 +288,7 @@ class DescribedIntFlag(IntFlag):
     """
 
     def __new__(cls, value, description):
-        obj = super().__new__(cls, value)  # , description)
+        obj = int.__new__(cls, value)  # , description)
         obj._value_ = value
         obj._description = description
         return obj

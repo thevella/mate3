@@ -207,7 +207,10 @@ class Mate3Client:
             first = False
 
             # Unknown device
-            if not model:
+            if not model or model is None:
+                length_register = self._client.read_holding_registers(address=register, count=2)
+                implemented, raw_value = Uint16Field._from_registers(None, [length_register[1]])
+                register += raw_value + 2
                 continue
 
             # No more blocks to read
