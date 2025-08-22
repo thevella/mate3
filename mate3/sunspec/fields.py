@@ -3,7 +3,7 @@ import socket
 import struct
 from abc import ABCMeta, abstractmethod
 from enum import Enum, IntFlag
-from typing import Optional
+from typing import Optional, Self, Any, Literal, Protocol
 
 
 class Mode(Enum):
@@ -53,14 +53,14 @@ class Field(metaclass=ABCMeta):
         return registers
 
     @abstractmethod
-    def _from_registers(self, registers):
+    def _from_registers(self: Self | None, registers)  -> tuple[Literal[False], None] | tuple[Literal[True], Any]:
         """
         Method to override that actually does the conversion, sans checks.
         """
         pass
 
     @abstractmethod
-    def _to_registers(self, value):
+    def _to_registers(self: Self | None, value) -> tuple[Any, ...]:
         """
         Method to override that actually does the conversion, sans checks.
         """
@@ -79,7 +79,7 @@ class IntegerField(Field):
 
 @dc.dataclass
 class Uint16Field(IntegerField):
-    def _from_registers(self, registers):
+    def _from_registers(self, registers: list[int]):
         val = registers[0]
         if val == 0xFFFF:
             # As per sunspec, this is "not implemented"
@@ -105,7 +105,7 @@ class Int16Field(IntegerField):
     mostly 'cos it's less confusing than bit manipulation.
     """
 
-    def _from_registers(self, registers):
+    def _from_registers(self, registers: list[int]):
         val = registers[0]
         if val == 0x8000:
             # As per sunspec, this is "not implemented"
@@ -122,7 +122,7 @@ class Int16Field(IntegerField):
 
 @dc.dataclass
 class Uint32Field(IntegerField):
-    def _from_registers(self, registers):
+    def _from_registers(self, registers: list[int]):
         val = (registers[0] << 16) | registers[1]
         if val == 0xFFFFFFFF:
             # As per sunspec, this is "not implemented"
@@ -169,6 +169,7 @@ class BitfieldMixin:
     This would have been simpler if they were normal on/off flags, however Outback has specified different meaning to
     "on" and "off", unfortunately.
     """
+    flags: IntFlag | None = None  # None isn't possible - just need it for dataclass since there are defaults already defined
 
     def _get_flags(self, value, mx, not_implemented):
         # TODO: as per spec ... "if the most significant bit in a bitfield is set, all other bits shall be ignored"
@@ -177,10 +178,10 @@ class BitfieldMixin:
             return False, None
         elif value < 0 or value > mx:
             raise ValueError(f"{self.__class__.__name__} should be between 0 and {mx}")
-        return True, self.flags(value)
+        return True, IntFlag(value)
 
     def _set_flags(self, flags):
-        if not isinstance(flags, self.flags):
+        if not isinstance(flags, self.flags.__class__):
             raise ValueError("Should be a flag of type {self.flags}")
         return flags.value
 
@@ -191,8 +192,7 @@ class Bit16Field(BitfieldMixin, Uint16Field):
     The actual IntFlags are in the flags attr, and this is a basic wrapper that e.g. checks the value is implemented
     before using the flags, etc.
     """
-
-    flags: IntFlag = None  # None isn't possible - just need it for dataclass since there are defaults already defined
+    flags: IntFlag | None = None  # None isn't possible - just need it for dataclass since there are defaults already defined
 
     def _from_registers(self, registers):
         implemented, value = super()._from_registers(registers)
@@ -200,7 +200,7 @@ class Bit16Field(BitfieldMixin, Uint16Field):
             return False, None
         return self._get_flags(value, mx=0x7FFF, not_implemented=0xFFFF)
 
-    def _to_registers(self, flags):
+    def _to_registers(self, flags): # pyright: ignore[reportIncompatibleMethodOverride]
         value = self._set_flags(flags)
         return super()._to_registers(value)
 
@@ -214,8 +214,7 @@ class Bit32Field(BitfieldMixin, Uint32Field):
     NB: According to the spec this shouldn't exist. But Outback have created it anyway. We'll assume it's just meant to
     be a bit16 for now ...
     """
-
-    flags: IntFlag = None  # None isn't possible - just need it for dataclass since there are defaults already defined
+    flags: IntFlag | None = None  # None isn't possible - just need it for dataclass since there are defaults already defined
 
     def _from_registers(self, registers):
         implemented, value = super()._from_registers(registers)
@@ -223,41 +222,43 @@ class Bit32Field(BitfieldMixin, Uint32Field):
             return False, None
         return self._get_flags(value, mx=0x7FFF, not_implemented=0xFFFF)
 
-    def _to_registers(self, flags):
+    def _to_registers(self, flags): # pyright: ignore[reportIncompatibleMethodOverride]
         value = self._set_flags(flags)
         return super()._to_registers(value)
 
 
 class EnumMixin:
+    options: Enum = None # pyright: ignore[reportAssignmentType]
+
     def _get_option(self, val):
         if val is None:
             return None
-        return self.options(val)
+        return type(self.options)(val)
 
     def _set_option(self, val):
-        if not isinstance(val, self.options):
+        if not isinstance(val, self.options.__class__):
             raise ValueError(f"Expected {self.options}")
         return val.value
 
-    def _from_registers(self, registers):
-        implemented, val = super()._from_registers(registers)
+    def _from_registers(self, registers) -> tuple[Literal[False], None] | tuple[Literal[True], Enum]:
+        implemented, val = super()._from_registers(registers) # pyright: ignore[reportAttributeAccessIssue]
         if not implemented:
             return False, None
-        return True, self._get_option(val)
+        return True, self._get_option(val) # pyright: ignore[reportReturnType]
 
     def _to_registers(self, value):
         value = self._set_option(value)
-        return super()._to_registers(value)
+        return super()._to_registers(value) # pyright: ignore[reportAttributeAccessIssue]
 
 
 @dc.dataclass
-class EnumUint16Field(EnumMixin, Uint16Field):
-    options: Enum = None  # None isn't possible - just need it for dataclass since there are defaults defined in parents
+class EnumUint16Field(EnumMixin, Uint16Field): # pyright: ignore[reportIncompatibleMethodOverride]
+    options: Enum = None # pyright: ignore[reportAssignmentType]
 
 
 @dc.dataclass
-class EnumInt16Field(EnumMixin, Int16Field):
-    options: Enum = None  # None isn't possible - just need it for dataclass since there are defaults defined in parents
+class EnumInt16Field(EnumMixin, Int16Field): # pyright: ignore[reportIncompatibleMethodOverride]
+    options: Enum = None # pyright: ignore[reportAssignmentType]
 
 
 @dc.dataclass
@@ -286,6 +287,7 @@ class DescribedIntFlag(IntFlag):
 
     Where each member now has a `.description` attribute (as opposed to just the usual name and value).
     """
+    _description: str
 
     def __new__(cls, value, description):
         obj = int.__new__(cls, value)  # , description)

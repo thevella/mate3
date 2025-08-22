@@ -1,11 +1,15 @@
 import dataclasses as dc
 from datetime import datetime
-from typing import Any, Iterable, Optional, Tuple
+from typing import Any, Iterable, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
 
 from .sunspec.fields import Field, Mode
 from .sunspec.model_base import Model
+from .read import ModelRead
+
+if TYPE_CHECKING:
+    from .api import Mate3Client
 
 
 class FieldValue:
@@ -16,7 +20,7 @@ class FieldValue:
 
     def __init__(
         self,
-        client,  # TODO: Can't type it to Mate3Client as circular imports suck ...
+        client: 'Mate3Client',  # TODO: Can't type it to Mate3Client as circular imports suck ...
         field: Field,
         scale_factor: Optional["FieldValue"],
         address: int,
@@ -62,7 +66,7 @@ class FieldValue:
         return self._last_read
 
     @property
-    def scale_factor(self) -> Optional[int]:
+    def scale_factor(self) -> Optional['FieldValue']:
         if self._scale_factor is None:
             return None
 
@@ -84,7 +88,7 @@ class FieldValue:
         return self._address
 
     @property
-    def registers(self) -> Tuple[int]:
+    def registers(self) -> tuple[int, ...]:
         return self._registers
 
     @property
@@ -192,7 +196,7 @@ class ModelValues:
     A base dataclass to extend with all the actual FieldValues for a given Model.
     """
 
-    model: Model = dc.field(metadata={"field": False})
+    model: Model | FieldValue = dc.field(metadata={"field": False})
     address: Optional[int] = dc.field(metadata={"field": False})
 
     def fields(self, modes: Optional[Iterable[Mode]] = None) -> Iterable[FieldValue]:
@@ -206,3 +210,20 @@ class ModelValues:
                 field_ = getattr(self, field.name)
                 if modes is None or field_.field.mode in modes:
                     yield field_
+
+    def from_model(self, model: ModelRead, read_time = None):
+        if read_time is None:
+            read_time = datetime.now()
+
+        for field in self.fields():
+            if field.implemented and field.field.mode in (Mode.R, Mode.RW):
+                field._raw_value = model[field.name]
+                field._last_read = read_time
+
+
+    def read(self):
+        read_time = datetime.now()
+        client = next(iter(self.fields()))._client
+        model, model_reads = client._read_model(self.address, first=False)
+        self.from_model(model_reads, read_time)
+

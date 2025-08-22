@@ -342,7 +342,7 @@ class DeviceValues:
                 scale_factor=None,
                 raw_value=None,
                 implemented=True,
-                read_time=None,
+                read_time=None, # pyright: ignore[reportArgumentType]
             )
             if isinstance(field, IntegerField) and field.scale_factor is not None:
                 scale_factors[field.name] = field.scale_factor.name

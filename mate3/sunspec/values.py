@@ -12,7 +12,7 @@ class SunSpecHeaderValues(ModelValues):
     model_id: FieldValue
     length: FieldValue
     manufacturer: FieldValue
-    model: FieldValue
+    model: FieldValue # pyright: ignore[reportIncompatibleVariableOverride]
     options: FieldValue
     version: FieldValue
     serial_number: FieldValue
@@ -29,7 +29,7 @@ class SunSpecCommonValues(ModelValues):
     did: FieldValue
     length: FieldValue
     manufacturer: FieldValue
-    model: FieldValue
+    model: FieldValue # pyright: ignore[reportIncompatibleVariableOverride]
     options: FieldValue
     version: FieldValue
     serial_number: FieldValue

@@ -40,3 +40,7 @@ script_launch_mode = "subprocess"
 
 [tool.black]
 line-length = 120
+
+[tool.pyright]
+reportOptionalMemberAccess = "none"
+# reportPossiblyUnboundVariable = "none"

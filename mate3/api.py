@@ -43,18 +43,18 @@ class Mate3Client:
         self,
         host: str,
         port: int = Defaults.Port,
-        cache_path: str = None,
+        cache_path: str | None = None,
         cache_only: bool = False,
         cache_writeable: bool = False,
         **kwargs
     ):
         self._host: str = host
         self._port: int = port
-        self._cache_path: str = cache_path
+        self._cache_path: str | None = cache_path
         self._cache_only: bool = cache_only
         self._cache_writeable: bool = cache_writeable
-        self._client: CachingModbusClient | NonCachingModbusClient = None
-        self._devices: DeviceValues = None
+        self._client: CachingModbusClient | NonCachingModbusClient | None = None
+        self._devices: DeviceValues | None= None
         self._modbus_kwargs = kwargs
 
     def is_connected(self):
@@ -123,7 +123,7 @@ class Mate3Client:
                 previous_range.extend(field)
         return ranges
 
-    def _read_model(self, device_address: int, first: bool, all_reads: AllModelReads):
+    def _read_model(self, device_address: int, first: bool):
         """
         Read an individual model at `address`. Use `first` to specify that this is the first block - see comment below.
         By default reads everything in the model - use `only` to specify a list of Fields to read, if you want to limit.
@@ -209,13 +209,13 @@ class Mate3Client:
         first = True
         all_reads = AllModelReads()
         for _ in range(max_models):
-            model, model_reads = self._read_model(register, first, all_reads)
+            model, model_reads = self._read_model(register, first)
             first = False
 
             # Unknown device
             if not model or model is None:
                 length_register = self._client.read_holding_registers(address=register, count=2)
-                implemented, raw_value = Uint16Field._from_registers(None, [length_register[1]])
+                _, raw_value = Uint16Field._from_registers(None, [length_register[1]])
                 register += raw_value + 2
                 continue
 
