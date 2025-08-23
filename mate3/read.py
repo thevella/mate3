@@ -2,6 +2,8 @@ import dataclasses as dc
 from datetime import datetime
 from typing import Any, List
 
+from .sunspec.model_base import Model
+
 
 @dc.dataclass
 class FieldRead:
@@ -12,7 +14,7 @@ class FieldRead:
     registers: List[int]
 
 
-class ModelRead(dict):
+class ModelRead(dict[str, FieldRead]):
     """
     A class for storing all the reads for a given model for a given device.
     """
@@ -22,8 +24,14 @@ class ModelRead(dict):
             registers=registers, raw_value=raw_value, implemented=implemented, address=address, time=time
         )
 
+    def get_raw(self, key, default = None):
+        v = self.get(key)
+        if v is None:
+            return None
+        return v.raw_value
 
-class AllModelReads(dict):
+
+class AllModelReads(dict[type[Model], list[ModelRead]]):
     """
     A class for storing all the reads for all models. It's basically just a dict
         Dict[<model class>, List[ModelRead]]

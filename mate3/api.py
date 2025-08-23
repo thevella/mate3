@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List
+import typing as t
 
 from loguru import logger
 from pymodbus.constants import Defaults
 
-from .devices import DeviceValues
+from .devices import DeviceValues, ModelStore
 from .modbus_client import CachingModbusClient, ModbusTcpClient, NonCachingModbusClient
 from .read import AllModelReads, ModelRead
 from .sunspec.fields import Field, Mode, Uint16Field, Uint32Field
@@ -19,7 +19,7 @@ class ReadingRange:
     for such a contiguous range.
     """
 
-    fields: List[Field]
+    fields: t.List[Field]
     start: int
     size: int
 
@@ -46,6 +46,7 @@ class Mate3Client:
         cache_path: str | None = None,
         cache_only: bool = False,
         cache_writeable: bool = False,
+        store_type: type[ModelStore] = DeviceValues,
         **kwargs
     ):
         self._host: str = host
@@ -54,8 +55,9 @@ class Mate3Client:
         self._cache_only: bool = cache_only
         self._cache_writeable: bool = cache_writeable
         self._client: CachingModbusClient | NonCachingModbusClient | None = None
-        self._devices: DeviceValues | None= None
+        self._devices: ModelStore = store_type(client=self)
         self._modbus_kwargs = kwargs
+        self._models = {}
 
     def is_connected(self):
         return self._client.is_connected()
@@ -94,7 +96,7 @@ class Mate3Client:
         self.close()
 
     @property
-    def devices(self) -> DeviceValues:
+    def devices(self) -> ModelStore:
         if self._devices is None:
             raise RuntimeError("Can't access devices until after first read")
         return self._devices
@@ -208,6 +210,7 @@ class Mate3Client:
         max_models = 30
         first = True
         all_reads = AllModelReads()
+        self._models.clear()
         for _ in range(max_models):
             model, model_reads = self._read_model(register, first)
             first = False
@@ -216,7 +219,7 @@ class Mate3Client:
             if not model or model is None:
                 length_register = self._client.read_holding_registers(address=register, count=2)
                 _, raw_value = Uint16Field._from_registers(None, [length_register[1]])
-                register += raw_value + 2
+                register += t.cast(int, raw_value) + 2
                 continue
 
             # No more blocks to read
@@ -237,7 +240,7 @@ class Mate3Client:
             self._devices = DeviceValues(client=self)
 
         # update:
-        self._devices.update(all_reads)
+        self._devices.upd_models(all_reads)
 
     def read_all_modbus_values_unparsed(self):
         """

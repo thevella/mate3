@@ -1,10 +1,12 @@
 import dataclasses as dc
-from typing import Dict, Iterable, Optional
+import typing as t
+from . import typing as tl
+from collections import defaultdict
 
 from loguru import logger
 
 from .field_values import FieldValue, ModelValues
-from .read import AllModelReads
+from .read import AllModelReads, ModelRead
 from .sunspec.fields import IntegerField
 from .sunspec.model_base import Model
 from .sunspec.models import (
@@ -19,6 +21,7 @@ from .sunspec.models import (
     RadianInverterConfigurationModel,
     SinglePhaseRadianInverterRealTimeModel,
     SplitPhaseRadianInverterRealTimeModel,
+    MODEL_DEVICE_IDS
 )
 from .sunspec.values import (
     ChargeControllerConfigurationValues,
@@ -33,7 +36,10 @@ from .sunspec.values import (
     RadianInverterConfigurationValues,
     SinglePhaseRadianInverterRealTimeValues,
     SplitPhaseRadianInverterRealTimeValues,
+    MODELS_TO_VALUES
 )
+
+MODEL_TO_ID = {k:v for v,k in MODEL_DEVICE_IDS.items()}
 
 
 @dc.dataclass
@@ -90,7 +96,114 @@ class Mate3DeviceValues(OutBackValues):
     config: OutBackSystemControlValues = dc.field(metadata={"field": False})
 
 
-class DeviceValues:
+class ModelStore(t.Protocol):
+    def __init__(self, client, *args, **kwargs): ...
+    @property
+    def connected_devices(self) -> t.Iterable[ModelValues]: ...
+    def upd_models(self, all_reads: AllModelReads) -> None: ...
+
+
+def model_is_outback(did):
+    return did > 2000 and did != 1400204883
+
+class DIDStore(dict[int, list[ModelValues]], ModelStore):
+
+    def __init__(self, client, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._client = client
+
+    def __connected_devices(self, filter_func = lambda x: True) -> t.Iterable[ModelValues]:
+        for did, value_lst in filter(filter_func, self.items()):
+            for value in value_lst:
+                yield value
+                if hasattr(value, 'config'):
+                    yield value.config
+
+    @property
+    def connected_devices(self) -> t.Iterable[ModelValues]:
+        return self.__connected_devices()
+
+    @property
+    def outback_devices(self) -> t.Iterable[ModelValues]:
+        return self.__connected_devices(lambda v_t: model_is_outback(v_t[0]))
+    
+    @property
+    def sunspec_devices(self) -> t.Iterable[ModelValues]:
+        return self.__connected_devices(lambda v_t: not model_is_outback(v_t[0]))
+
+
+    def upd_models(self, all_reads: AllModelReads):
+        self._upd_outback_models(all_reads)
+        self._upd_sunspec_models(all_reads)
+
+    def _upd_outback_models(self, all_reads: AllModelReads):
+        new_configs: dict[int | None, list[dict[str, ModelRead | str | type[Model]]]] = {}
+        new_models: dict[int | None, list[dict[str, ModelRead | type[Model]]]] = {}
+        for model, model_reads in all_reads.items():
+            for model_read in model_reads:
+                did = MODEL_TO_ID[model]
+                if did < 2000 or did == 1400204883:
+                    continue
+
+                self.setdefault(did, [])
+                
+                port: int | None = model_read.get_raw('port_number')
+
+                model_name = model.__class__.__name__
+                if "Configuration" in model_name:
+                    base_name = model_name[:-len('ConfigurationModel')] + 'Values'
+                    new_configs.setdefault(port, [])
+                    new_configs[port].append({'b': base_name, 'm': model, 'mr': model_read})
+                else:
+                    new_models.setdefault(port, [])
+                    new_models[port].append({'m': model, 'mr': model_read})
+        
+        if set(new_configs).symmetric_difference(set(new_models)):
+            raise RuntimeError("Config and models have different ports!")
+        
+        for port, model_l in new_models.items():
+            for model_d in model_l:
+                model: type[Model] = t.cast(type[Model], model_d['m'])
+                value_class: ModelValues = MODELS_TO_VALUES[model_d['m']]
+                value_class_name = value_class.__class__.__name__
+                did = MODEL_TO_ID[model]
+
+                config: ModelRead | None = None
+                for config_d in new_configs.get(did, default = []): # pyright: ignore[reportCallIssue]
+                    if config_d['b'] == value_class_name:
+                        config = config_d['mr']
+
+                self._upd_or_create_model(did, model, t.cast(ModelRead, model_d['mr']), config=config)
+
+
+    """
+    When we are reading new data into an existing ModelStore, we want to update in place.
+    This is because we don't want to invalidate references, it also has the side effect of allocating less dynamic memory.
+    """
+    def _upd_or_create_model(self, did: int, model: type[tl.Model], model_read: ModelRead, config: t.Optional[ModelRead] = None):
+        for model_v in self[did]:
+            if model_v.address == model_read['did'].address:
+                model_v.update_from_model(model_read, config)
+            else:
+                value_class: ModelValues = MODELS_TO_VALUES[model]
+                self[did].append(value_class.from_model(model, model_read, self._client, config=config) )
+
+    
+    def _upd_sunspec_models(self, all_reads: AllModelReads):
+        for model, model_reads in all_reads.items():
+            for model_read in model_reads:
+                did = MODEL_TO_ID[model]
+                # Sunspec did values are low, besides the header
+                # don't need 'and did != 65535' since this is never added to all_reads
+                if did > 2000 and did != 1400204883:
+                    continue
+
+                self.setdefault(did, [])
+                self._upd_or_create_model(did, model, model_read)
+
+
+
+class DeviceValues(ModelStore):
     """
     This is basically a way for storing state (i.e. current values) about all devices. It's the main interface for users
     to access values etc.
@@ -98,16 +211,16 @@ class DeviceValues:
 
     def __init__(self, client):
         self._client = client
-        self.mate3s: Dict[None, Mate3DeviceValues] = {}
-        self.charge_controllers: Dict[int, ChargeControllerDeviceValues] = {}
-        self.fndcs: Dict[int, FNDCDeviceValues] = {}
-        self.fx_inverters: Dict[int, FXInverterDeviceValues] = {}
-        self.single_phase_radian_inverters: Dict[int, SinglePhaseRadianInverterDeviceValues] = {}
-        self.split_phase_radian_inverters: Dict[int, SplitPhaseRadianInverterDeviceValues] = {}
-        self.optics: Optional[OPTICSPacketStatisticsValues] = None
+        self.mate3s: dict[None, Mate3DeviceValues] = {}
+        self.charge_controllers: dict[int, ChargeControllerDeviceValues] = {}
+        self.fndcs: dict[int, FNDCDeviceValues] = {}
+        self.fx_inverters: dict[int, FXInverterDeviceValues] = {}
+        self.single_phase_radian_inverters: dict[int, SinglePhaseRadianInverterDeviceValues] = {}
+        self.split_phase_radian_inverters: dict[int, SplitPhaseRadianInverterDeviceValues] = {}
+        self.optics: t.Optional[OPTICSPacketStatisticsValues] = None
 
     @property
-    def connected_devices(self) -> Iterable[ModelValues]:
+    def connected_devices(self) -> t.Iterable[ModelValues]:
         # First ones with only a single device:
         for d in ("mate3", "optics"):
             device = getattr(self, d)
@@ -147,44 +260,47 @@ class DeviceValues:
         """
         Return the mate3.
         """
-        return self._get_single_device("mate3")
+        return t.cast(Mate3DeviceValues, self._get_single_device("mate3"))
 
     @property
     def charge_controller(self) -> ChargeControllerDeviceValues:
         """
         Return the charge controller if there's only one.
         """
-        return self._get_single_device("charge_controller")
+        return t.cast(ChargeControllerDeviceValues, self._get_single_device("charge_controller"))
 
     @property
     def fndc(self) -> FNDCDeviceValues:
         """
         Return the FNDC if there's only one.
         """
-        return self._get_single_device("fndc")
+        return t.cast(FNDCDeviceValues, self._get_single_device("fndc"))
 
     @property
     def fx_inverter(self) -> FXInverterDeviceValues:
         """
         Return the FX inverter if there's only one.
         """
-        return self._get_single_device("fx_inverter")
+        return t.cast(FXInverterDeviceValues, self._get_single_device("fx_inverter"))
 
     @property
     def single_phase_radian_inverter(self) -> SinglePhaseRadianInverterDeviceValues:
         """
         Return the single phase radian inverter if there's only one.
         """
-        return self._get_single_device("single_phase_radian_inverter")
+        return t.cast(SinglePhaseRadianInverterDeviceValues, self._get_single_device("single_phase_radian_inverter"))
 
     @property
     def split_phase_radian_inverter(self) -> SplitPhaseRadianInverterDeviceValues:
         """
         Return the split phase radian inverter if there's only one.
         """
-        return self._get_single_device("split_phase_radian_inverter")
+        return t.cast(SplitPhaseRadianInverterDeviceValues, self._get_single_device("split_phase_radian_inverter"))
 
     def update(self, all_reads: AllModelReads) -> None:
+        self.upd_models(all_reads)
+
+    def upd_models(self, all_reads: AllModelReads) -> None:
         """
         This is the key method, and is used to update the state of the devices with new values.
         """
@@ -252,11 +368,11 @@ class DeviceValues:
     def _update_model_and_config(
         self,
         all_reads: AllModelReads,
-        model_class: Model,
-        config_class: Model,
-        config_values_class: ModelValues,
-        device_values: Dict[int, ModelValues],
-        device_class: ModelValues,
+        model_class: type[Model],
+        config_class: type[Model],
+        config_values_class: type[ModelValues],
+        device_values: t.MutableMapping[int | None, tl.ModelValues],
+        device_class: type[ModelValues],
     ) -> None:
 
         model_field_reads_per_port = all_reads.get_reads_per_model_by_port(model_class)
@@ -308,7 +424,7 @@ class DeviceValues:
             # Either way, update the field values:
             for reads, device_val in (
                 (model_reads_this_port, device_values[port]),
-                (config_reads_this_port, device_values[port].config),
+                (config_reads_this_port, device_values[port].config), # pyright: ignore[reportAttributeAccessIssue]
             ):
                 for field_name, field_read in reads.items():
                     field_value = getattr(device_val, field_name)
@@ -326,8 +442,8 @@ class DeviceValues:
             del device_values[port]
 
     def _create_new_model_values(
-        self, model: Model, values_class: ModelValues, device_address: int, config: Optional[ModelValues] = None
-    ):
+        self, model: type[tl.Model], values_class: type[tl.ModelValues], device_address: int, config: t.Optional[ModelValues] = None
+    ) -> tl.ModelValues:
 
         # Create empty FieldValues
         field_values = {}

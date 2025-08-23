@@ -4,9 +4,10 @@ from typing import Any, Iterable, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
 
-from .sunspec.fields import Field, Mode
 from .sunspec.model_base import Model
 from .read import ModelRead
+from .sunspec.fields import Field, Mode, IntegerField
+
 
 if TYPE_CHECKING:
     from .api import Mate3Client
@@ -198,6 +199,7 @@ class ModelValues:
 
     model: Model | FieldValue = dc.field(metadata={"field": False})
     address: Optional[int] = dc.field(metadata={"field": False})
+    port: Optional[int] = dc.field(metadata={"field": False})
 
     def fields(self, modes: Optional[Iterable[Mode]] = None) -> Iterable[FieldValue]:
         """
@@ -211,19 +213,49 @@ class ModelValues:
                 if modes is None or field_.field.mode in modes:
                     yield field_
 
-    def from_model(self, model: ModelRead, read_time = None):
-        if read_time is None:
-            read_time = datetime.now()
-
+    def update_from_model(self, model: ModelRead, config: ModelRead | None = None):
         for field in self.fields():
             if field.implemented and field.field.mode in (Mode.R, Mode.RW):
                 field._raw_value = model[field.name]
-                field._last_read = read_time
+                field._last_read = model[field.name].time
 
+        if config is not None and hasattr(self, 'config'):
+            self.config.update_from_model(config)
+
+    @classmethod
+    def from_model(cls, model: type[Model], model_read: ModelRead, client, port: int | None = None, config: ModelRead | None = None):
+        field_values = {}
+        scale_factors = {}
+        model_address = model_read['did'].address
+        for field in model.fields():
+            field_name = field.name
+            field_read = model_read[field_name]
+
+            field_values[field_name] = FieldValue(
+                client=client,
+                field=field,
+                address=field_read.address,
+                registers=field_read.registers,
+                scale_factor=None,
+                raw_value=field_read.raw_value,
+                implemented=field_read.implemented,
+                read_time=field_read.time,
+            )
+
+            if isinstance(field, IntegerField) and field.scale_factor is not None:
+                scale_factors[field.name] = field.scale_factor.name
+
+        # Now assign scale factors:
+        for field, scale_factor in scale_factors.items():
+            field_values[field]._scale_factor = field_values[scale_factor]
+
+        port = model_read['port_number'].raw_value if "port_number" in model_read else None
+
+        kwargs = {"model": model, "address": model_address, "port": port, **field_values}
+        return cls(**kwargs) if config is None else cls(config=config, **kwargs)
 
     def read(self):
-        read_time = datetime.now()
         client = next(iter(self.fields()))._client
-        model, model_reads = client._read_model(self.address, first=False)
-        self.from_model(model_reads, read_time)
+        model, model_read = client._read_model(self.address, first=False)
+        self.update_from_model(model_read)
 
