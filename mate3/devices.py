@@ -426,6 +426,7 @@ class DeviceValues(ModelStore):
                 (model_reads_this_port, device_values[port]),
                 (config_reads_this_port, device_values[port].config), # pyright: ignore[reportAttributeAccessIssue]
             ):
+                reads.port = port
                 for field_name, field_read in reads.items():
                     field_value = getattr(device_val, field_name)
                     field_value._raw_value = field_read.raw_value
@@ -467,5 +468,5 @@ class DeviceValues(ModelStore):
         for field, scale_factor in scale_factors.items():
             field_values[field]._scale_factor = field_values[scale_factor]
 
-        kwargs = {"model": model, "address": device_address, **field_values}
+        kwargs = {"model": model, "address": device_address, "port": None, **field_values}
         return values_class(**kwargs) if config is None else values_class(config=config, **kwargs)
