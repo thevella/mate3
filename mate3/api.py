@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 import typing as t
+import sys
 
 from loguru import logger
 from pymodbus.constants import Defaults
@@ -11,6 +12,8 @@ from .read import AllModelReads, ModelRead
 from .sunspec.fields import Field, Mode, Uint16Field, Uint32Field
 from .sunspec.models import MODEL_DEVICE_IDS, SunSpecEndModel, SunSpecHeaderModel
 
+logger.remove()
+logger.add(sys.stderr, level="INFO")
 
 @dataclass(frozen=False)
 class ReadingRange:
