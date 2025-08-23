@@ -169,7 +169,7 @@ class BitfieldMixin:
     This would have been simpler if they were normal on/off flags, however Outback has specified different meaning to
     "on" and "off", unfortunately.
     """
-    flags: IntFlag | None = None  # None isn't possible - just need it for dataclass since there are defaults already defined
+    flags: type[IntFlag] = None  # None isn't possible - just need it for dataclass since there are defaults already defined
 
     def _get_flags(self, value, mx, not_implemented):
         # TODO: as per spec ... "if the most significant bit in a bitfield is set, all other bits shall be ignored"
@@ -178,10 +178,10 @@ class BitfieldMixin:
             return False, None
         elif value < 0 or value > mx:
             raise ValueError(f"{self.__class__.__name__} should be between 0 and {mx}")
-        return True, IntFlag(value)
+        return True, self.flags(value)
 
     def _set_flags(self, flags):
-        if not isinstance(flags, self.flags.__class__):
+        if not isinstance(flags, self.flags):
             raise ValueError("Should be a flag of type {self.flags}")
         return flags.value
 
@@ -192,7 +192,7 @@ class Bit16Field(BitfieldMixin, Uint16Field):
     The actual IntFlags are in the flags attr, and this is a basic wrapper that e.g. checks the value is implemented
     before using the flags, etc.
     """
-    flags: IntFlag | None = None  # None isn't possible - just need it for dataclass since there are defaults already defined
+    flags: type[IntFlag] = None  # None isn't possible - just need it for dataclass since there are defaults already defined
 
     def _from_registers(self, registers):
         implemented, value = super()._from_registers(registers)
@@ -214,7 +214,7 @@ class Bit32Field(BitfieldMixin, Uint32Field):
     NB: According to the spec this shouldn't exist. But Outback have created it anyway. We'll assume it's just meant to
     be a bit16 for now ...
     """
-    flags: IntFlag | None = None  # None isn't possible - just need it for dataclass since there are defaults already defined
+    flags: type[IntFlag] = None  # None isn't possible - just need it for dataclass since there are defaults already defined
 
     def _from_registers(self, registers):
         implemented, value = super()._from_registers(registers)
@@ -228,15 +228,15 @@ class Bit32Field(BitfieldMixin, Uint32Field):
 
 
 class EnumMixin:
-    options: Enum = None # pyright: ignore[reportAssignmentType]
+    options: type[Enum] = None # pyright: ignore[reportAssignmentType]
 
     def _get_option(self, val):
         if val is None:
             return None
-        return type(self.options)(val)
+        return self.options(val)
 
     def _set_option(self, val):
-        if not isinstance(val, self.options.__class__):
+        if not isinstance(val, self.options):
             raise ValueError(f"Expected {self.options}")
         return val.value
 
